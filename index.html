@@ -59,6 +59,9 @@ td.corte{font-weight:500}
 .btn-download{display:flex;align-items:center;justify-content:center;gap:.7rem;width:100%;padding:.9rem;background:var(--ink);color:var(--bg);border:none;border-radius:3px;font-family:'DM Mono',monospace;font-size:.78rem;letter-spacing:.06em;cursor:pointer;transition:background .15s;margin-bottom:2rem}
 .btn-download:hover:not(:disabled){background:#2D2315}
 .btn-download:disabled{opacity:.35;cursor:not-allowed}
+.btn-import{display:flex;align-items:center;justify-content:center;gap:.7rem;width:100%;padding:.8rem;background:var(--surface);color:var(--green);border:1.5px solid var(--green);border-radius:3px;font-family:'DM Mono',monospace;font-size:.75rem;letter-spacing:.06em;cursor:pointer;transition:background .15s,color .15s;margin-bottom:.8rem}
+.btn-import:hover:not(:disabled){background:var(--green-light)}
+.btn-import:disabled{opacity:.35;cursor:not-allowed}
 .hidden{display:none!important}
 footer{max-width:var(--max-w);margin:3rem auto 0;padding-top:1.5rem;border-top:1px solid var(--border);font-size:.62rem;color:var(--ink-3);letter-spacing:.06em;display:flex;justify-content:space-between}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
@@ -86,6 +89,9 @@ footer{max-width:var(--max-w);margin:3rem auto 0;padding-top:1.5rem;border-top:1
 <div class="tab-panel active" id="tab-carn">
   <div class="section">
     <div class="section-label"><span>01 — Cargar archivo de Carnicerias</span></div>
+    <button class="btn-import" id="btn-import-carn" onclick="fetchCarnFromCSV()">
+      <span>⬇</span><span id="itxt-carn">Importar datos desde Google Sheets</span>
+    </button>
     <div class="drop-zone" id="dz-carn">
       <input type="file" id="fi-carn" accept=".xlsx">
       <div class="drop-icon">📂</div>
@@ -122,6 +128,9 @@ footer{max-width:var(--max-w);margin:3rem auto 0;padding-top:1.5rem;border-top:1
 <div class="tab-panel" id="tab-env">
   <div class="section">
     <div class="section-label"><span>01 — Cargar archivo de Envasados</span></div>
+    <button class="btn-import" id="btn-import-env" onclick="fetchEnvFromCSV()">
+      <span>⬇</span><span id="itxt-env">Importar datos desde Google Sheets</span>
+    </button>
     <div class="drop-zone" id="dz-env">
       <input type="file" id="fi-env" accept=".xlsx">
       <div class="drop-icon">📂</div>
@@ -201,8 +210,11 @@ footer{max-width:var(--max-w);margin:3rem auto 0;padding-top:1.5rem;border-top:1
 // ══════════════════════════════════════════════════════════
 // ESTADO GLOBAL
 // ══════════════════════════════════════════════════════════
-const GC = { wb:null, analysis:[], locales:[], fileName:'', periodo:'' };
-const GE = { wb:null, groups:[], locales:[], fileName:'', periodo:'', totalCortes:0 };
+const GC = { wb:null, analysis:[], locales:[], fileName:'', periodo:'', fromCSV:false };
+const GE = { wb:null, groups:[], locales:[], fileName:'', periodo:'', totalCortes:0, fromCSV:false };
+
+const CSV_CARN = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vScTVilNORMDp8Kjdn3_htOvsLLAKzjFXKJHlVL82J1ux7N2SyF4rQmWO8KOB1T6g/pub?gid=1926808203&single=true&output=csv';
+const CSV_ENV  = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSoR9E3LModzg9sab90VvyjR6E0yL_iDwyycPkHySI4Y-mytU1ewSiETLMxDWsc1g/pub?gid=518826803&single=true&output=csv';
 
 // ══════════════════════════════════════════════════════════
 // UTILS COMPARTIDOS
@@ -280,12 +292,79 @@ function applyCell(cell, val, fillHex, fontCfg, alignCfg, numFmt) {
 }
 
 // ══════════════════════════════════════════════════════════
+// IMPORTAR DESDE GOOGLE SHEETS (CSV)
+// ══════════════════════════════════════════════════════════
+async function fetchCarnFromCSV() {
+  const btn = $('btn-import-carn'); btn.disabled = true;
+  $('itxt-carn').textContent = 'Conectando con Google Sheets…';
+  setStatus('carn', 'Descargando datos desde Google Sheets…', 'info');
+  $('sb-carn').classList.add('pulsing');
+  try {
+    const resp = await fetch(CSV_CARN);
+    if (!resp.ok) throw new Error(`Error HTTP ${resp.status} al conectar con Google Sheets`);
+    const text = await resp.text();
+    if (!text.trim()) throw new Error('La hoja está vacía o no está publicada correctamente');
+    const wb = XLSX.read(text, { type:'string' });
+    GC.wb = null;
+    GC.fromCSV = true;
+    GC.fileName = 'Carnicerias_GoogleSheets_ANALIZADO.xlsx';
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const r = processCarnSheet(ws);
+    GC.analysis = r.analysis; GC.locales = r.locales; GC.periodo = r.periodo;
+    $('sb-carn').classList.remove('pulsing');
+    setStatus('carn', `✓ Importado desde Google Sheets — ${GC.analysis.length} cortes en ${GC.locales.length} locales`, 'ok');
+    renderCarnStats(); renderCarnTable();
+    show('stats-carn'); show('preview-carn'); show('dl-carn');
+  } catch(err) {
+    $('sb-carn').classList.remove('pulsing');
+    setStatus('carn', 'Error: ' + err.message, 'err');
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    $('itxt-carn').textContent = 'Importar datos desde Google Sheets';
+  }
+}
+
+async function fetchEnvFromCSV() {
+  const btn = $('btn-import-env'); btn.disabled = true;
+  $('itxt-env').textContent = 'Conectando con Google Sheets…';
+  setStatus('env', 'Descargando datos desde Google Sheets…', 'info');
+  $('sb-env').classList.add('pulsing');
+  try {
+    const resp = await fetch(CSV_ENV);
+    if (!resp.ok) throw new Error(`Error HTTP ${resp.status} al conectar con Google Sheets`);
+    const text = await resp.text();
+    if (!text.trim()) throw new Error('La hoja está vacía o no está publicada correctamente');
+    const wb = XLSX.read(text, { type:'string' });
+    GE.wb = null;
+    GE.fromCSV = true;
+    GE.fileName = 'Envasados_GoogleSheets_ANALIZADO.xlsx';
+    const sheetName = wb.SheetNames[0];
+    const r = processEnvSheet(wb.Sheets[sheetName], sheetName);
+    GE.groups = r.groups; GE.locales = r.locales; GE.periodo = r.periodo; GE.totalCortes = r.totalCortes;
+    $('sb-env').classList.remove('pulsing');
+    if (GE.groups.length === 0) throw new Error('No se encontraron grupos de cortes reconocibles en la hoja.');
+    setStatus('env', `✓ Importado desde Google Sheets — ${GE.groups.length} grupos, ${GE.totalCortes} cortes`, 'ok');
+    renderEnvStats(); renderEnvTable();
+    show('stats-env'); show('preview-env'); show('dl-env');
+  } catch(err) {
+    $('sb-env').classList.remove('pulsing');
+    setStatus('env', 'Error: ' + err.message, 'err');
+    console.error(err);
+  } finally {
+    btn.disabled = false;
+    $('itxt-env').textContent = 'Importar datos desde Google Sheets';
+  }
+}
+
+// ══════════════════════════════════════════════════════════
 // ████  CARNICERIAS
 // ══════════════════════════════════════════════════════════
 setupDrop('carn', handleCarn);
 
 function handleCarn(file) {
   if (!file || !file.name.endsWith('.xlsx')) { setStatus('carn', 'El archivo debe ser .xlsx', 'err'); return; }
+  GC.fromCSV = false;
   GC.fileName = file.name.replace('.xlsx', '') + '_ANALIZADO.xlsx';
   setStatus('carn', 'Procesando…', 'info');
   $('sb-carn').classList.add('pulsing');
@@ -528,9 +607,11 @@ async function generateCarn() {
     await loadExcelJS();
     $('btxt-carn').textContent = 'Generando Excel…';
     const wb = new ExcelJS.Workbook();
-    const origSN = GC.wb.SheetNames.find(n => n.toLowerCase().includes('precio') && n.toLowerCase().includes('carnicer') && !n.toLowerCase().includes('analisis') && !n.toLowerCase().includes('copia'));
-    const ws1 = wb.addWorksheet(origSN);
-    copySheetWithFormat(GC.wb.Sheets[origSN], ws1);
+    if (!GC.fromCSV && GC.wb) {
+      const origSN = GC.wb.SheetNames.find(n => n.toLowerCase().includes('precio') && n.toLowerCase().includes('carnicer') && !n.toLowerCase().includes('analisis') && !n.toLowerCase().includes('copia'));
+      const ws1 = wb.addWorksheet(origSN || 'Datos originales');
+      copySheetWithFormat(GC.wb.Sheets[origSN], ws1);
+    }
     const ws = wb.addWorksheet('Analisis de precio Carnicerias ');
     ws.getColumn(1).width=27; ws.getColumn(2).width=22.7; ws.getColumn(3).width=17.7;
     ws.getColumn(4).width=13; ws.getColumn(5).width=21.9; ws.getColumn(6).width=82.4;
@@ -636,6 +717,7 @@ function getMarca(corteRaw) {
 
 function handleEnv(file) {
   if (!file || !file.name.endsWith('.xlsx')) { setStatus('env', 'El archivo debe ser .xlsx', 'err'); return; }
+  GE.fromCSV = false;
   GE.fileName = file.name.replace('.xlsx', '') + '_ANALIZADO.xlsx';
   setStatus('env', 'Procesando…', 'info');
   $('sb-env').classList.add('pulsing');
@@ -851,13 +933,15 @@ async function generateEnv() {
     $('btxt-env').textContent = 'Generando Excel…';
     const wb = new ExcelJS.Workbook();
 
-    // Hoja 1: precio original
-    const origSN = GE.wb.SheetNames.find(n => {
-      const l = n.toLowerCase();
-      return l.includes('envasad') && !l.includes('analisis') && !l.includes('copia') && !l.includes('análisis');
-    }) || GE.wb.SheetNames.find(n => n.toLowerCase().includes('precio') && !n.toLowerCase().includes('analisis') && !n.toLowerCase().includes('copia'));
-    const ws1 = wb.addWorksheet(origSN);
-    copySheetWithFormat(GE.wb.Sheets[origSN], ws1);
+    // Hoja 1: precio original (solo si se cargó desde archivo Excel)
+    if (!GE.fromCSV && GE.wb) {
+      const origSN = GE.wb.SheetNames.find(n => {
+        const l = n.toLowerCase();
+        return l.includes('envasad') && !l.includes('analisis') && !l.includes('copia') && !l.includes('análisis');
+      }) || GE.wb.SheetNames.find(n => n.toLowerCase().includes('precio') && !n.toLowerCase().includes('analisis') && !n.toLowerCase().includes('copia'));
+      const ws1 = wb.addWorksheet(origSN || 'Datos originales');
+      copySheetWithFormat(GE.wb.Sheets[origSN], ws1);
+    }
 
     // Hoja 2: análisis — 8 columnas (A=grupo, B=marca, C=corte, D=local, E=indicador, F=precio, G=diff, H=comentario)
     const ws = wb.addWorksheet('Analisis de precio de cortes');
