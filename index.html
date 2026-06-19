@@ -62,6 +62,17 @@ td.corte{font-weight:500}
 .btn-import{display:flex;align-items:center;justify-content:center;gap:.7rem;width:100%;padding:.8rem;background:var(--surface);color:var(--green);border:1.5px solid var(--green);border-radius:3px;font-family:'DM Mono',monospace;font-size:.75rem;letter-spacing:.06em;cursor:pointer;transition:background .15s,color .15s;margin-bottom:.8rem}
 .btn-import:hover:not(:disabled){background:var(--green-light)}
 .btn-import:disabled{opacity:.35;cursor:not-allowed}
+.date-filter{background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:.75rem 1rem;margin-bottom:.8rem}
+.df-label{font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:.55rem}
+.df-hint{font-size:.58rem;color:var(--border-dark);text-transform:none;letter-spacing:0}
+.df-inputs{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap}
+.df-group{display:flex;flex-direction:column;gap:.2rem}
+.df-group label{font-size:.58rem;color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase}
+.df-group input[type=date]{font-family:'DM Mono',monospace;font-size:.72rem;padding:.4rem .6rem;border:1px solid var(--border-dark);border-radius:3px;background:var(--bg);color:var(--ink);cursor:pointer}
+.df-group input[type=date]:focus{outline:none;border-color:var(--green)}
+.df-clear{font-family:'DM Mono',monospace;font-size:.62rem;padding:.35rem .7rem;border:1px solid var(--border-dark);border-radius:3px;background:none;color:var(--ink-3);cursor:pointer;letter-spacing:.05em;margin-top:auto}
+.df-clear:hover{border-color:var(--accent);color:var(--accent)}
+.df-active-badge{font-size:.6rem;padding:.15rem .5rem;background:var(--green-light);color:var(--green);border-radius:2px;margin-left:.5rem}
 .hidden{display:none!important}
 footer{max-width:var(--max-w);margin:3rem auto 0;padding-top:1.5rem;border-top:1px solid var(--border);font-size:.62rem;color:var(--ink-3);letter-spacing:.06em;display:flex;justify-content:space-between}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
@@ -89,6 +100,14 @@ footer{max-width:var(--max-w);margin:3rem auto 0;padding-top:1.5rem;border-top:1
 <div class="tab-panel active" id="tab-carn">
   <div class="section">
     <div class="section-label"><span>01 — Cargar archivo de Carnicerias</span></div>
+    <div class="date-filter">
+      <div class="df-label">Filtrar por rango de fechas <span class="df-hint">— opcional, requiere columna de fecha en la hoja</span></div>
+      <div class="df-inputs">
+        <div class="df-group"><label>Desde</label><input type="date" id="df-start-carn"></div>
+        <div class="df-group"><label>Hasta</label><input type="date" id="df-end-carn"></div>
+        <button class="df-clear" onclick="clearDateFilter('carn')">✕ Limpiar</button>
+      </div>
+    </div>
     <button class="btn-import" id="btn-import-carn" onclick="fetchCarnFromCSV()">
       <span>⬇</span><span id="itxt-carn">Importar datos desde Google Sheets</span>
     </button>
@@ -128,6 +147,14 @@ footer{max-width:var(--max-w);margin:3rem auto 0;padding-top:1.5rem;border-top:1
 <div class="tab-panel" id="tab-env">
   <div class="section">
     <div class="section-label"><span>01 — Cargar archivo de Envasados</span></div>
+    <div class="date-filter">
+      <div class="df-label">Filtrar por rango de fechas <span class="df-hint">— opcional, requiere columna de fecha en la hoja</span></div>
+      <div class="df-inputs">
+        <div class="df-group"><label>Desde</label><input type="date" id="df-start-env"></div>
+        <div class="df-group"><label>Hasta</label><input type="date" id="df-end-env"></div>
+        <button class="df-clear" onclick="clearDateFilter('env')">✕ Limpiar</button>
+      </div>
+    </div>
     <button class="btn-import" id="btn-import-env" onclick="fetchEnvFromCSV()">
       <span>⬇</span><span id="itxt-env">Importar datos desde Google Sheets</span>
     </button>
@@ -292,6 +319,77 @@ function applyCell(cell, val, fillHex, fontCfg, alignCfg, numFmt) {
 }
 
 // ══════════════════════════════════════════════════════════
+// FILTRO DE FECHA
+// ══════════════════════════════════════════════════════════
+function clearDateFilter(pfx) {
+  $('df-start-' + pfx).value = '';
+  $('df-end-' + pfx).value = '';
+}
+
+function getDateFilter(pfx) {
+  const s = $('df-start-' + pfx)?.value;
+  const e = $('df-end-' + pfx)?.value;
+  if (!s && !e) return null;
+  return {
+    start: s ? new Date(s + 'T00:00:00') : null,
+    end:   e ? new Date(e + 'T23:59:59') : null
+  };
+}
+
+// Intenta parsear un valor de celda como fecha.
+// Soporta: dd/mm/yyyy, dd-mm-yyyy, yyyy-mm-dd, números seriales de Excel.
+function parseFecha(v) {
+  if (v === null || v === undefined || v === '') return null;
+  // Número serial de Excel (fechas guardadas como número)
+  if (typeof v === 'number' && v > 40000 && v < 60000) {
+    return new Date(Math.round((v - 25569) * 86400000));
+  }
+  const s = String(v).trim();
+  if (!s || s === '-') return null;
+  // dd/mm/yyyy o dd-mm-yyyy
+  let m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})$/);
+  if (m) {
+    let y = parseInt(m[3]); if (y < 100) y += 2000;
+    return new Date(y, parseInt(m[2]) - 1, parseInt(m[1]));
+  }
+  // yyyy-mm-dd (ISO)
+  m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+  if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+  // Fallback nativo
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Detecta el índice de la columna de fecha en el encabezado.
+// Busca por nombre primero, luego por contenido de las primeras filas de datos.
+function detectFechaCol(headerRow, dataRows) {
+  const DATE_NAMES = new Set(['FECHA','DATE','DIA','DÍA','SEMANA','PERIODO','PERÍODO','F.','DT','TIMESTAMP']);
+  // 1) Buscar por nombre de columna
+  for (let i = 0; i < headerRow.length; i++) {
+    if (!headerRow[i]) continue;
+    const k = String(headerRow[i]).trim().toUpperCase();
+    if (DATE_NAMES.has(k) || k.startsWith('FECHA') || k.startsWith('DIA') || k.startsWith('DÍA')) return i;
+  }
+  // 2) Buscar por contenido en las primeras 5 filas de datos
+  const sample = dataRows.slice(0, 5);
+  for (let col = 0; col < (headerRow.length || 10); col++) {
+    let hits = 0;
+    for (const row of sample) {
+      if (row && parseFecha(row[col]) !== null) hits++;
+    }
+    if (hits >= Math.min(2, sample.length)) return col;
+  }
+  return -1;
+}
+
+function inDateRange(fecha, df) {
+  if (!df || !fecha) return true;
+  if (df.start && fecha < df.start) return false;
+  if (df.end   && fecha > df.end)   return false;
+  return true;
+}
+
+// ══════════════════════════════════════════════════════════
 // IMPORTAR DESDE GOOGLE SHEETS (CSV)
 // ══════════════════════════════════════════════════════════
 async function fetchCarnFromCSV() {
@@ -309,10 +407,12 @@ async function fetchCarnFromCSV() {
     GC.fromCSV = true;
     GC.fileName = 'Carnicerias_GoogleSheets_ANALIZADO.xlsx';
     const ws = wb.Sheets[wb.SheetNames[0]];
-    const r = processCarnSheet(ws);
+    const df = getDateFilter('carn');
+    const r = processCarnSheet(ws, df);
     GC.analysis = r.analysis; GC.locales = r.locales; GC.periodo = r.periodo;
     $('sb-carn').classList.remove('pulsing');
-    setStatus('carn', `✓ Importado desde Google Sheets — ${GC.analysis.length} cortes en ${GC.locales.length} locales`, 'ok');
+    const dfNote = df ? ` (filtro de fecha aplicado)` : '';
+    setStatus('carn', `✓ Importado desde Google Sheets — ${GC.analysis.length} cortes en ${GC.locales.length} locales${dfNote}`, 'ok');
     renderCarnStats(); renderCarnTable();
     show('stats-carn'); show('preview-carn'); show('dl-carn');
   } catch(err) {
@@ -340,11 +440,13 @@ async function fetchEnvFromCSV() {
     GE.fromCSV = true;
     GE.fileName = 'Envasados_GoogleSheets_ANALIZADO.xlsx';
     const sheetName = wb.SheetNames[0];
-    const r = processEnvSheet(wb.Sheets[sheetName], sheetName);
+    const df = getDateFilter('env');
+    const r = processEnvSheet(wb.Sheets[sheetName], sheetName, df);
     GE.groups = r.groups; GE.locales = r.locales; GE.periodo = r.periodo; GE.totalCortes = r.totalCortes;
     $('sb-env').classList.remove('pulsing');
     if (GE.groups.length === 0) throw new Error('No se encontraron grupos de cortes reconocibles en la hoja.');
-    setStatus('env', `✓ Importado desde Google Sheets — ${GE.groups.length} grupos, ${GE.totalCortes} cortes`, 'ok');
+    const dfNote = df ? ` (filtro de fecha aplicado)` : '';
+    setStatus('env', `✓ Importado desde Google Sheets — ${GE.groups.length} grupos, ${GE.totalCortes} cortes${dfNote}`, 'ok');
     renderEnvStats(); renderEnvTable();
     show('stats-env'); show('preview-env'); show('dl-env');
   } catch(err) {
@@ -380,7 +482,7 @@ function handleCarn(file) {
         return l.includes('precio') && l.includes('carnicer') && !l.includes('analisis') && !l.includes('copia');
       });
       if (!sn) throw new Error('No se encontró la hoja de precios. Hojas disponibles: ' + wb.SheetNames.join(', '));
-      const r = processCarnSheet(wb.Sheets[sn]);
+      const r = processCarnSheet(wb.Sheets[sn], getDateFilter('carn'));
       GC.analysis = r.analysis; GC.locales = r.locales; GC.periodo = r.periodo;
       $('sb-carn').classList.remove('pulsing');
       setStatus('carn', `✓ Procesado — ${GC.analysis.length} cortes en ${GC.locales.length} locales`, 'ok');
@@ -395,9 +497,9 @@ function handleCarn(file) {
   reader.readAsArrayBuffer(file);
 }
 
-function processCarnSheet(ws) {
+function processCarnSheet(ws, dateRange) {
   const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
-  let periodo = '', hIdx = -1, hCols = {};
+  let periodo = '', hIdx = -1, hCols = {}, fechaCol = -1;
 
   const CORTE_COL_NAMES_C = new Set(['CORTE','CADENA','TIPO DE CORTE','CORTES','DESCRIPCION','DESCRIPCIÓN','PRODUCTO','ITEM']);
   function isNumC(v) {
@@ -438,6 +540,11 @@ function processCarnSheet(ws) {
   const locales = Object.keys(hCols).filter(k => !SKIP.has(k));
   if (hCols['BOX1']) locales.push('BOX');
 
+  // Detectar columna de fecha si hay filtro activo
+  if (dateRange) {
+    fechaCol = detectFechaCol(rows[hIdx], rows.slice(hIdx + 1, hIdx + 6));
+  }
+
   const lomo = { seen: false };
   const analysis = [];
 
@@ -446,6 +553,11 @@ function processCarnSheet(ws) {
     if (!row || !row[0]) continue;
     let corte = String(row[0]).trim();
     if (!corte || corte.toUpperCase() === 'CORTE' || corte.toUpperCase() === 'CADENA') continue;
+    // Filtro de fecha
+    if (dateRange && fechaCol >= 0) {
+      const fecha = parseFecha(row[fechaCol]);
+      if (!inDateRange(fecha, dateRange)) continue;
+    }
     if (corte.toUpperCase() === 'LOMO') {
       if (!lomo.seen) lomo.seen = true; else corte = 'LOMO DE CERDO';
     }
@@ -741,10 +853,10 @@ function handleEnv(file) {
           return l.includes('precio') && !l.includes('analisis') && !l.includes('copia');
         });
         if (!sn2) throw new Error('No se encontró la hoja de precios. Hojas disponibles: ' + wb.SheetNames.join(', '));
-        const r = processEnvSheet(wb.Sheets[sn2], sn2);
+        const r = processEnvSheet(wb.Sheets[sn2], sn2, getDateFilter('env'));
         GE.groups = r.groups; GE.locales = r.locales; GE.periodo = r.periodo; GE.totalCortes = r.totalCortes;
       } else {
-        const r = processEnvSheet(wb.Sheets[sn], sn);
+        const r = processEnvSheet(wb.Sheets[sn], sn, getDateFilter('env'));
         GE.groups = r.groups; GE.locales = r.locales; GE.periodo = r.periodo; GE.totalCortes = r.totalCortes;
       }
 
@@ -762,9 +874,9 @@ function handleEnv(file) {
   reader.readAsArrayBuffer(file);
 }
 
-function processEnvSheet(ws, sheetName) {
+function processEnvSheet(ws, sheetName, dateRange) {
   const rows = XLSX.utils.sheet_to_json(ws, { header:1, defval:null });
-  let periodo = '', hIdx = -1, hCols = {}, locales = [];
+  let periodo = '', hIdx = -1, hCols = {}, locales = [], fechaCol = -1;
 
   const KNOWN_HDR = new Set(['CORTE','CADENA','TIPO DE CORTE','CORTES','DESCRIPCION','DESCRIPCIÓN','PRODUCTO','ITEM']);
 
@@ -824,6 +936,11 @@ function processEnvSheet(ws, sheetName) {
     throw new Error('Se encontró el encabezado pero no tiene columnas de locales reconocibles.');
   }
 
+  // Detectar columna de fecha si hay filtro activo
+  if (dateRange) {
+    fechaCol = detectFechaCol(rows[hIdx], rows.slice(hIdx + 1, hIdx + 6));
+  }
+
   // ── Recolectar cortes ──
   const allCuts = [];
   for (let i = hIdx + 1; i < rows.length; i++) {
@@ -831,6 +948,11 @@ function processEnvSheet(ws, sheetName) {
     if (!row || !row[0]) continue;
     const corteRaw = String(row[0]).trim();
     if (!corteRaw || KNOWN_HDR.has(corteRaw.toUpperCase())) continue;
+    // Filtro de fecha
+    if (dateRange && fechaCol >= 0) {
+      const fecha = parseFecha(row[fechaCol]);
+      if (!inDateRange(fecha, dateRange)) continue;
+    }
 
     const grupo = getEnvGroup(corteRaw);
     if (!grupo) continue;
